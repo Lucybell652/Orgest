@@ -12,15 +12,13 @@ def install_package(package):
     except ImportError:
         print(f"📦 Instalando {package}...")
         try:
-            # Instalación silenciosa
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "install", package],
                 capture_output=True,
                 text=True,
-                timeout=120  # 2 minutos timeout
+                timeout=120
             )
             if result.returncode == 0:
-                # Verificar que realmente se instaló
                 try:
                     __import__("PIL" if package == "Pillow" else package)
                     return True
@@ -41,6 +39,20 @@ def check_dependencies():
     
     return True
 
+# 🔥 CORRECCIÓN: Definir ANTIALIAS para compatibilidad
+def setup_pillow_compatibility():
+    """Configura compatibilidad para versiones antiguas y nuevas de Pillow"""
+    from PIL import Image
+    try:
+        # Para Pillow >= 10.0.0
+        if not hasattr(Image, 'ANTIALIAS'):
+            Image.ANTIALIAS = Image.LANCZOS
+        if not hasattr(Image, 'Resampling'):
+            Image.Resampling = type('Resampling', (), {'LANCZOS': Image.LANCZOS})
+    except AttributeError:
+        pass
+    return Image
+
 class ImagePreprocessor:
     """Pre-procesa imágenes para compatibilidad con Pillow 10.0.0"""
     
@@ -51,16 +63,19 @@ class ImagePreprocessor:
         self.moved_count = 0
         self.ruta_base = ruta_base
         self.carpeta_fallos = os.path.join(ruta_base, "fallos")
+        
+        # 🔥 CORRECCIÓN: Configurar compatibilidad al inicializar
+        self.Image = setup_pillow_compatibility()
     
     def limpiar_consola(self):
         """Limpia la consola según el sistema operativo"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         if CONFIG['limpiar_consola']:
             os.system('cls' if os.name == 'nt' else 'clear')
     
     def create_sin_edit_folder(self, folder_path):
         """Crea la carpeta 'sin_edit' si no existe"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         sin_edit_folder = os.path.join(folder_path, "sin_edit")
         if not os.path.exists(sin_edit_folder):
@@ -71,7 +86,7 @@ class ImagePreprocessor:
     
     def create_fallos_folder(self):
         """Crea la carpeta 'fallos' si no existe"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         if not os.path.exists(self.carpeta_fallos):
             os.makedirs(self.carpeta_fallos)
@@ -81,7 +96,7 @@ class ImagePreprocessor:
     
     def move_original_to_backup(self, original_path, sin_edit_folder):
         """Mueve el archivo original a la carpeta sin_edit de forma segura"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         try:
             if not os.path.exists(original_path):
@@ -117,7 +132,7 @@ class ImagePreprocessor:
     
     def move_to_fallos(self, image_path, error_message):
         """Mueve una imagen fallida a la carpeta de fallos"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         try:
             if not os.path.exists(image_path):
@@ -159,7 +174,7 @@ class ImagePreprocessor:
     
     def find_images_needing_processing(self, folder_path):
         """Encuentra imágenes que podrían necesitar pre-procesamiento"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         images = []
         
@@ -207,7 +222,7 @@ class ImagePreprocessor:
     
     def process_image(self, image_path, sin_edit_folder, output_quality=85, max_dimension=5000):
         """Procesa una imagen y mueve el original a sin_edit"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         try:
             # Primero mover el original a sin_edit
@@ -218,10 +233,8 @@ class ImagePreprocessor:
             # Ahora procesar la imagen (que ahora está en sin_edit, trabajar con copia)
             original_in_backup = os.path.join(sin_edit_folder, os.path.basename(image_path))
             
-            # Importar aquí para evitar problemas de importación circular
-            from PIL import Image
-            
-            with Image.open(original_in_backup) as img:
+            # 🔥 CORRECCIÓN: Usar self.Image que ya tiene la compatibilidad configurada
+            with self.Image.open(original_in_backup) as img:
                 original_mode = img.mode
                 original_size = img.size
                 
@@ -232,7 +245,7 @@ class ImagePreprocessor:
                 # Convertir modos problemáticos a RGB
                 if img.mode in ('RGBA', 'LA'):
                     # Crear fondo blanco para imágenes con transparencia
-                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    background = self.Image.new('RGB', img.size, (255, 255, 255))
                     if img.mode == 'RGBA':
                         background.paste(img, mask=img.split()[-1])
                     else:
@@ -247,7 +260,7 @@ class ImagePreprocessor:
                     if CONFIG['modo_verbose']:
                         print(f"      Convertido de {original_mode} a RGB")
                 
-                # Redimensionar si es muy grande (usando LANCZOS en lugar de ANTIALIAS)
+                # 🔥 CORRECCIÓN: Usar LANCZOS en lugar de ANTIALIAS
                 needs_resize = self.needs_resize_processing(img, max_dimension)
                 if needs_resize:
                     width, height = img.size
@@ -257,8 +270,8 @@ class ImagePreprocessor:
                         ratio = min(max_dimension/width, max_dimension/height)
                         new_size = (int(width * ratio), int(height * ratio))
                         
-                        # Usar LANCZOS (reemplazo de ANTIALIAS)
-                        img = img.resize(new_size, Image.LANCZOS)
+                        # 🔥 CORRECCIÓN: Usar LANCZOS (reemplazo de ANTIALIAS)
+                        img = img.resize(new_size, self.Image.LANCZOS)
                         if CONFIG['modo_verbose']:
                             print(f"      Redimensionado: {original_size} → {new_size}")
                 
@@ -303,7 +316,7 @@ class ImagePreprocessor:
     
     def process_folder(self, folder_path, output_quality=85, max_dimension=5000):
         """Procesa todas las imágenes en una carpeta"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         if CONFIG['modo_verbose']:
             print("🖼️  INICIANDO PROCESAMIENTO DE IMÁGENES...")
@@ -349,7 +362,7 @@ class ImagePreprocessor:
     
     def _print_summary(self):
         """Muestra resumen del procesamiento"""
-        from main import CONFIG  # Importar configuración
+        from main import CONFIG
         
         # Limpiar consola antes de mostrar el resumen final si está configurado
         if CONFIG['limpiar_consola']:
@@ -427,7 +440,10 @@ def preprocesar_imagenes(ruta, modo_automatico=False):
     Returns:
         dict: Resultados del preprocesamiento para el estado del programa
     """
-    from main import CONFIG  # Importar configuración
+    from main import CONFIG
+    
+    # 🔥 CORRECCIÓN: Configurar compatibilidad globalmente
+    setup_pillow_compatibility()
     
     # Mostrar siempre el banner del punto 5
     print("\n" + "="*50)
